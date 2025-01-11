@@ -1,0 +1,462 @@
+Libraries imported:
+
+1. pandas:
+Purpose: A powerful data manipulation and analysis library.
+What it does: It's primarily used for working with structured data (like tables, which are often stored in 
+CSV files or databases). It allows you to perform tasks like data cleaning, transformation, and analysis 
+using DataFrames (2-dimensional labeled data structures).
+Common use cases:
+Reading and writing data files (CSV, Excel, SQL, etc.).
+Data cleaning and transformation (e.g., filling missing values, merging data).
+Aggregating, filtering, and analyzing data.
+python
+
+
+
+2.openai:
+Purpose: A library to interact with OpenAI's models and services.
+What it does: It allows you to use OpenAI's machine learning models (like GPT for natural language processing,
+ DALL·E for image generation, etc.). The library provides a convenient way to send text or other data to 
+OpenAI's API and receive a response.
+Common use cases:
+Text generation (e.g., for chatbots, writing assistants).
+Summarizing or extracting information from documents.
+Image generation (with models like DALL·E).
+
+
+3.os:
+Purpose: Provides a way of interacting with the operating system.
+What it does: This module allows you to work with the file system, environment variables, and more. It is 
+essential for tasks like file handling and accessing environment variables.
+Common use cases:
+Reading or writing files.
+Managing environment variables (e.g., storing API keys securely).
+Running system commands.
+
+
+4. dotenv (load_dotenv and find_dotenv):
+Purpose: Loads environment variables from a .env file into the environment.
+What it does: This module is used to read key-value pairs stored in a .env file (usually used for secrets 
+like API keys) and makes them available to your script. It's a secure way to handle sensitive information 
+in development.
+Common use cases:
+Store secrets (e.g., API keys) in .env files and load them into the application.
+
+
+5. numpy:
+Purpose: A fundamental package for scientific computing in Python.
+What it does: It provides support for large multi-dimensional arrays and matrices, along with a collection 
+of mathematical functions to operate on these arrays.
+Common use cases:
+Mathematical operations (e.g., linear algebra, statistical analysis).
+Handling large datasets in array form (more efficient than Python lists).
+
+
+6. pickle:
+Purpose: Used for serializing and deserializing Python objects.
+What it does: It allows you to save (pickle) Python objects to a file and later load (unpickle) them back 
+into memory. This is useful for saving machine learning models, datasets, or any Python objects between 
+sessions.
+Common use cases:
+Saving and loading models or data structures.
+Persisting objects to disk for later use.
+
+7. streamlit:
+Purpose: A framework for creating interactive web applications in Python.
+What it does: Streamlit allows you to quickly create web apps for data science, machine learning, and 
+analytics. It's ideal for building dashboards or simple user interfaces where you can display charts, 
+tables, and text.
+Common use cases:
+Building real-time interactive dashboards for data analysis.
+Visualizing machine learning models or datasets in an interactive way.
+python
+
+
+8.faiss
+faiss is a library designed for efficient similarity search in high-dimensional data (vectors).
+It's widely used in machine learning tasks where large datasets of vectors need to be queried to find 
+similar items (e.g., in recommendations, search engines, or clustering applications).
+It supports both exact and approximate nearest neighbor search, with optimizations for large-scale data.
+
+
+pandas: For data manipulation (tables, DataFrames).
+openai: For interacting with OpenAI's API (e.g., GPT models).
+os: For interacting with the operating system (e.g., environment variables, file system).
+dotenv: For loading environment variables from .env files.
+numpy: For numerical computations and working with arrays.
+pickle: For serializing and deserializing Python objects.
+streamlit: For building interactive web applications and dashboards.
+
+
+
+APP.py
+
+import pandas as pd
+import openai
+import os
+from dotenv import load_dotenv, find_dotenv
+import numpy as np
+import pickle
+import streamlit as st
+
+# Set OpenAI API Key as the environment variable
+_ = load_dotenv(find_dotenv())  # Load environment variables from .env file
+openai.api_key = os.getenv('OPENAI_API_KEY')
+
+# Config Paths
+OUTPUT_FILE_DIR = "output"
+OUTPUT_MASTERDATA_FILE_NAME = "insurance_masterdata.pickle"
+OUTPUT_INDEX_FILE_NAME = "index.pickle"
+
+# Getting the root directory path
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Masterdata file path
+masterdata_df_file_path = os.path.join(ROOT_DIR, OUTPUT_FILE_DIR, OUTPUT_MASTERDATA_FILE_NAME)
+index_file_path = os.path.join(ROOT_DIR, OUTPUT_FILE_DIR, OUTPUT_INDEX_FILE_NAME)
+
+# Function to load the pickle file
+def load_pickle_file(file_path):
+    with open(file_path, 'rb') as f:
+        return pickle.load(f)
+
+# Function to load the masterdata pickle file
+def load_masterdata_pickle(path):
+    return pd.read_pickle(path)
+
+# Function to extract the top K questions and answers similar to the user prompt
+def get_context(index_file_path, prompt, masterdata_df_file_path, k):
+    index = load_pickle_file(index_file_path)
+    query_embedding = openai.Embedding.create(input=[prompt], model="text-embedding-ada-002")['data'][0]['embedding']
+    distance, indices = index.search(np.array([query_embedding]), k)
+    master_df = load_masterdata_pickle(masterdata_df_file_path)
+    top_k_prompt = "".join(master_df.iloc[indices[0].flatten()]['text'].tolist())
+    return top_k_prompt
+
+# Function to process the response and extract the original user prompt
+def process_content(text):
+    return text.split("}<question/>")[0].split("{")[-1]
+
+# Reset conversation function
+def reset_conversation():
+    st.session_state.messages = []
+    st.session_state.expander_history = []
+
+# Main Streamlit function
+def main():
+    st.title("Your InsureAssist! 🛡️🚑🏥")
+
+    # Create the sidebar
+    with st.sidebar:
+        if 'messages' not in st.session_state:
+            st.session_state.messages = []
+        if 'expander_history' not in st.session_state:
+            st.session_state.expander_history = []
+
+        st.button('Start new chat', on_click=reset_conversation)
+
+    # Display current chat messages
+    for message in st.session_state.messages:
+        if message["role"] != "system":
+            with st.chat_message(message["role"]):
+                st.markdown(process_content(message["content"]))
+
+    # Accept user input
+    if prompt := st.chat_input("Welcome to InsureAssist! How can I help you?"):
+        relevant_context = get_context(index_file_path, prompt, masterdata_df_file_path, 4)
+        prompt_context = "<question>{"+prompt+"}<question/>, <context>{"+relevant_context+"}<context/>"
+        
+        st.session_state.messages.append({"role": "user", "content": prompt_context})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Get assistant response
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+        )
+        full_response = response.choices[0].message['content']
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+        with st.chat_message("assistant"):
+            st.markdown(full_response)
+
+        # Save the conversation history for future reference
+        st.session_state.expander_history.append(st.session_state.messages)
+
+        # Display previous conversations directly
+        for idx, conv in enumerate(st.session_state.expander_history):
+            st.markdown(f"**Conversation {idx + 1}:**")
+            for message in conv:
+                with st.chat_message(message["role"]):
+                    st.markdown(process_content(message["content"]))
+
+if __name__ == "__main__":
+    main()
+
+
+What the Code Does:
+1. Setting Up the Environment:
+API Key: The code loads the OpenAI API key from a .env file so it can use OpenAI’s models to generate 
+responses.
+File Paths: It sets up paths to the files that store the assistant’s knowledge (masterdata) and an index 
+that helps find the relevant information quickly.
+2. Functions in the Code:
+Loading Files:
+
+There are two main types of files:
+Pickle Files: Used to store and load the assistant's data and search index (like a quick way to access 
+related information).
+Masterdata: A file that contains insurance-related text (e.g., questions and answers) that the assistant 
+uses to answer users' questions.
+The code has functions that load these files when needed.
+
+Get Relevant Information:
+
+When the user asks a question, the assistant needs to find relevant data from its stored knowledge 
+(masterdata).
+The code uses vector embeddings (a way to represent words as numbers) to find the closest matches to the 
+user’s question from the stored data. It does this using a search index and OpenAI's embedding models.
+It then returns the most relevant information from the masterdata, which will help the assistant answer
+ the user's question.
+Generate Assistant Response:
+
+After finding relevant information, the assistant sends the user's question along with the relevant context 
+to OpenAI’s GPT-3.5 model.
+The model generates a response based on both the user’s question and the context (relevant insurance 
+information).
+Save and Display Chat History:
+
+Every time the user and the assistant exchange messages, these messages are saved in the app’s memory 
+(using Streamlit's session state). This allows the app to keep track of the conversation and show the 
+full chat history.
+How the App Works:
+User Opens the App:
+
+The user sees a title and an option to start a new conversation.
+The app uses Streamlit's sidebar to let the user start a new chat or continue an existing one.
+User Asks a Question:
+
+The user types a question in a chat input box (e.g., "What does my insurance cover?").
+Finding Relevant Information:
+
+The assistant takes the user’s question and finds the most relevant information from its stored data 
+(masterdata). This is done by converting the question into a special vector and searching for similar 
+data in the index.
+Generating a Response:
+
+The assistant sends both the user’s question and the relevant data to OpenAI’s GPT-3.5 model to generate 
+a helpful response.
+Displaying the Response:
+
+The assistant’s response is shown in the chat interface.
+Saving the Conversation:
+
+The entire conversation is saved so that the user can refer to it later or continue from where they left off.
+Starting a New Chat:
+
+If the user wants to start fresh, they can click a button that resets the conversation history.
+In Simple Terms:
+What it is: It's a web app where you can chat with an insurance assistant. You can ask questions about 
+insurance, and it will help you by providing answers based on stored information.
+
+How it works:
+
+You ask a question about insurance.
+The assistant looks through its database to find the most relevant information.
+It then uses a powerful language model (OpenAI GPT) to give you a helpful answer.
+The conversation is saved, and you can look back at it later or continue chatting.
+Important Features:
+
+Contextual Responses: The assistant doesn't just answer randomly; it uses the context from its stored 
+knowledge (insurance-related data) to generate accurate answers.
+Interactive Chat: It's a chat-based interface where the user and assistant take turns talking.
+Conversation History: You can see the entire conversation (both your messages and the assistant’s responses) 
+and even start a new conversation.
+Summary:
+The app provides a simple, interactive insurance assistant that responds intelligently based on pre-stored
+ knowledge. It makes use of machine learning techniques (like vector embeddings and OpenAI’s GPT) to ensure 
+that the answers are relevant and context-aware. The chat history is saved, and the user can restart a
+ conversation anytime they like.
+
+
+
+CREATE_INDEX.py
+
+import pandas as pd
+import openai
+import os
+from dotenv import load_dotenv, find_dotenv
+import numpy as np
+import pickle
+import faiss
+
+# Set the OPENAI API Key as the environment variable
+_ = load_dotenv(find_dotenv())
+openai.api_key = os.getenv('OPENAI_API_KEY')
+
+# Config Paths
+INPUT_FILE_NAME = "insurance.csv"
+EMBEDDING_FILE_NAME = "embedding_array.pickle"
+INPUT_FILE_DIR = "input"
+OUTPUT_FILE_DIR = "output_test"
+OUTPUT_MASTERDATA_FILE_NAME = "insurance_masterdata.pickle"
+OUTPUT_INDEX_FILE_NAME = "index.pickle"
+
+
+def create_text(row):
+    # Process the text before sending it to LLM
+    return f"question- {row['question']}\nanswer- {row['answer']}"
+
+
+def generate_embedding_array(embeddings, embedding_file_name, output_file_dir):
+    # Generate embeddings in numpy array and save it in a pickle format
+    all_embeddings = [i['embedding'] for i in embeddings]
+    embedding_array = np.array(all_embeddings)
+
+    with open(os.path.join(output_file_dir, embedding_file_name), 'wb') as pickle_file:
+        pickle.dump(embedding_array, pickle_file)
+
+
+def create_faiss_index(embeddings_path, output_index_file_name, output_file_dir):
+    # Define the dimensions for OpenAI embedding model which is 1536
+    d = 1536
+    index = faiss.IndexFlatIP(d)
+
+    # Open the embedding saved in numpy array
+    with open(embeddings_path, 'rb') as f:
+        embeddings = pickle.load(f).astype(np.float32)
+
+    # Add embedding to the index
+    index.add(embeddings)
+
+    # Save the index pickle file to the output directory
+    with open(os.path.join(output_file_dir, output_index_file_name), 'wb') as file:
+        pickle.dump(index, file)
+
+
+def convert_masterdata_to_pickle(df, output_masterdata_file_name, output_file_dir):
+    # Save the DataFrame as a pickle file
+    df.to_pickle(os.path.join(output_file_dir, output_masterdata_file_name))
+
+
+def main():
+    try:
+        # Create the input file path
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+        input_file_path = os.path.join(root_dir, INPUT_FILE_DIR, INPUT_FILE_NAME)
+
+        # Read the master data CSV file
+        df = pd.read_csv(input_file_path)
+
+        # Create the input for embedding creation
+        df['text'] = df.apply(create_text, axis=1)
+
+        # Generate embeddings for all the rows
+        response = openai.Embedding.create(
+            input=df['text'].tolist(),
+            model="text-embedding-ada-002"
+        )
+        embeddings = response['data']
+
+        # Create numpy array for embeddings
+        generate_embedding_array(embeddings, EMBEDDING_FILE_NAME, OUTPUT_FILE_DIR)
+
+        # Create FAISS index
+        create_faiss_index(os.path.join(root_dir, OUTPUT_FILE_DIR, EMBEDDING_FILE_NAME), OUTPUT_INDEX_FILE_NAME, OUTPUT_FILE_DIR)
+
+        # Create master data for input file
+        convert_masterdata_to_pickle(df, OUTPUT_MASTERDATA_FILE_NAME, OUTPUT_FILE_DIR)
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+if __name__ == "__main__":
+    main()
+
+This Python code is designed to process insurance data, create embeddings (numerical representations of text), and generate a search index using FAISS for efficient similarity searches. Let me explain it in simple terms:
+
+Overall Purpose:
+This script reads a CSV file containing insurance-related questions and answers, converts them into 
+vector embeddings (numerical representations), creates a FAISS index for fast similarity search, and saves
+ the data in multiple formats (pickle files) for later use.
+
+Here's a breakdown of each section of the code:
+
+1. Libraries:
+pandas: Used to read and manipulate the insurance data from the CSV file.
+openai: Interfaces with OpenAI's API to generate text embeddings (numerical representations of text) using a 
+specific model (text-embedding-ada-002).
+os: Used for file and directory management (handling paths).
+dotenv: Loads the OpenAI API key from an environment file (.env).
+numpy: Used to handle and manipulate arrays (for embeddings).
+pickle: Saves and loads Python objects in a serialized format, such as embedding arrays and FAISS indexes.
+faiss: A library used to create a search index that allows fast similarity searches on embeddings.
+2. Constants and Paths:
+File names: Specifies the names of the input CSV file, output pickle files for embeddings and indexes, and 
+directories where these files will be saved.
+3. Functions:
+create_text(row):
+Purpose: Converts each row of the dataset into a string format suitable for embedding. It formats the row as:
+text
+Copy code
+question- [question text]
+answer- [answer text]
+generate_embedding_array(embeddings, embedding_file_name, output_file_dir):
+Purpose: This function takes the embeddings (which are generated by OpenAI), extracts the embeddings from 
+the response, converts them into a numpy array, and saves them as a pickle file.
+Why it's important: This is necessary because embeddings are used for later steps (like searching for
+ similar questions/answers) and need to be stored in a structured format for efficient use.
+create_faiss_index(embeddings_path, output_index_file_name, output_file_dir):
+Purpose:
+It creates a FAISS index from the embeddings saved in the pickle file.
+FAISS is a library designed to perform similarity searches quickly, even with millions of vectors (embeddings).
+The index is created using Inner Product (IP) search, which is a fast method for comparing embeddings.
+After creating the index, it's saved as a pickle file so it can be used later for similarity searches.
+Why it's important: The FAISS index allows for fast retrieval of the most similar question-answer pairs 
+based on user queries.
+convert_masterdata_to_pickle(df, output_masterdata_file_name, output_file_dir):
+Purpose: Converts the DataFrame (which contains the original insurance data) into a pickle file for later use. This file will store the original data that can be referenced during a conversation or when fetching related information.
+4. Main Function (main()):
+The main() function ties everything together:
+
+Read the CSV: It loads the insurance data from the CSV file (insurance.csv).
+Create Text for Embedding: It processes each row by combining the question and answer into a single text 
+block (via create_text()).
+Generate Embeddings: It sends these texts to the OpenAI API to get embeddings using the 
+"text-embedding-ada-002" model.
+Create Embedding Array: The embeddings returned by OpenAI are saved in a numpy array and stored in a 
+pickle file (embedding_array.pickle).
+Create FAISS Index: It creates a FAISS index for efficient searching based on the embeddings and stores it
+ in a pickle file (index.pickle).
+Save the Master Data: It also saves the original insurance data (questions and answers) as a pickle file 
+(insurance_masterdata.pickle).
+5. Error Handling:
+If anything goes wrong during the execution, an error message is printed with the details of what went wrong.
+How the Script Works:
+Input: The script expects a CSV file (insurance.csv) with questions and answers related to insurance.
+Text Processing: The script then processes each row of the CSV to combine the question and answer into a
+ format that OpenAI can turn into embeddings.
+Generating Embeddings: It sends these texts to OpenAI's model to create embeddings, which are vector 
+representations of the text.
+FAISS Index: Using these embeddings, it creates a FAISS index, allowing for fast similarity searches.
+Pickle Files: The embeddings, FAISS index, and master data are all saved in pickle files so they can be 
+easily loaded and used later.
+Output: The output consists of three pickle files:
+insurance_masterdata.pickle: The raw insurance data (question and answer pairs).
+embedding_array.pickle: The generated embeddings.
+index.pickle: The FAISS index for fast similarity search.
+Why This is Useful:
+Embedding: Embeddings are used to represent the meaning of text in a way that machines can understand and 
+compare. In this case, the embeddings allow for comparing different insurance questions and finding the most 
+relevant answers.
+FAISS Index: The FAISS index is used to quickly find the most similar questions in the dataset based on user
+ input. For example, if a user asks a question, the system can quickly retrieve similar questions from the
+ database.
+Pickle Files: By saving these important data structures in pickle files, they can be reused without having
+ to regenerate them every time.
+In Simple Terms:
+This script turns insurance-related questions and answers into machine-readable vectors (embeddings), stores 
+them in a search-friendly index (FAISS), and saves everything as files. Later, the assistant can use these
+ files to quickly answer users' questions by finding the most similar questions and providing relevant answers.
